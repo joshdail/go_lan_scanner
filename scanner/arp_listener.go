@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"net"
+	"strings"
 	"time"
 
 	"github.com/google/gopacket"
@@ -20,14 +21,27 @@ func listenForARPReplies(handle *pcap.Handle, timeout time.Duration) ([]Device, 
 			if arpLayer := packet.Layer(layers.LayerTypeARP); arpLayer != nil {
 				arp := arpLayer.(*layers.ARP)
 				if arp.Operation == layers.ARPReply {
+
+					ip := net.IP(arp.SourceProtAddress).String()
+					mac := net.HardwareAddr(arp.SourceHwAddress).String()
+
+					hostname := ""
+					if names, err := net.LookupAddr(ip); err == nil && len(names) > 0 {
+						hostname = strings.TrimSuffix(names[0], ".")
+					}
+
+					vendor := lookupVendor(mac)
+
 					results = append(results, Device{
-						IP:  net.IP(arp.SourceProtAddress).String(),
-						MAC: net.HardwareAddr(arp.SourceHwAddress).String(),
+						IP:       ip,
+						MAC:      mac,
+						Hostname: hostname,
+						Vendor:   vendor,
 					})
 				}
 			}
 		case <-timeoutChan:
 			return results, nil
-		} // select
-	} // for
-} // listenForARPReplies
+		}
+	}
+}
