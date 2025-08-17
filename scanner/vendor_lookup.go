@@ -17,6 +17,31 @@ var (
 	ouiCSVPath = "data/oui.csv"
 )
 
+type CSVFormat int
+
+const (
+	FormatUnknown CSVFormat = iota
+	FormatSanitized
+	FormatRaw
+	FormatNewIEEE
+	FormatFallback
+)
+
+func (f CSVFormat) String() string {
+	switch f {
+	case FormatSanitized:
+		return "sanitized"
+	case FormatRaw:
+		return "raw"
+	case FormatNewIEEE:
+		return "newieee"
+	case FormatFallback:
+		return "fallback"
+	default:
+		return "unknown"
+	}
+}
+
 // Override CSV filepath if needed
 func SetOUIPath(path string) {
 	ouiCSVPath = path
@@ -35,33 +60,45 @@ func normalizeOUI(s string) string {
 	return u
 }
 
-// Check header row, determine format, and return string identifier
-func determineCSVFormat(header []string) string {
-	if len(header) < 2 {
-		return "fallback"
-	}
-	h0 := strings.ToLower(strings.TrimSpace(header[0]))
-	h1 := strings.ToLower(strings.TrimSpace(header[1]))
+func stripBOM(s string) string {
+	return strings.TrimPrefix(s, "\uFEFF")
+}
 
-	if len(header) >= 3 && strings.ToLower(strings.TrimSpace(header[0])) == "registry" &&
-		strings.ToLower(strings.TrimSpace(header[1])) == "assignment" {
-		return "newIEEE"
-	} else if h0 == "oui" && (h1 == "organizationname" || h1 == "organization") {
-		return "sanitized"
-	} else if h0 == "assignment" && strings.HasPrefix(h1, "organization") {
-		return "raw"
+// Check header row, determine format, and return string identifier
+func determineCSVFormat(header []string) CSVFormat {
+	if len(header) == 0 {
+		return FormatUnknown
 	}
-	return "fallback"
+	h0 := strings.ToLower(strings.TrimSpace(stripBOM(header[0])))
+
+	switch {
+	case len(header) >= 2 && h0 == "oui" &&
+		(strings.ToLower(strings.TrimSpace(header[1])) == "organizationname" ||
+			strings.ToLower(strings.TrimSpace(header[1])) == "organization"):
+		return FormatSanitized
+
+	case len(header) >= 2 && h0 == "assignment" &&
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(header[1])), "organization"):
+		return FormatRaw
+
+	case len(header) >= 3 && h0 == "registry" &&
+		strings.ToLower(strings.TrimSpace(header[1])) == "assignment" &&
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(header[2])), "organization"):
+		return FormatNewIEEE
+
+	default:
+		return FormatFallback
+	} // switch
 } // determineCSVFormat
 
 // Return key (OUI) and organization name based on CSV format
-func parseRecord(rec []string, format string) (string, string) {
+func parseRecord(rec []string, format CSVFormat) (string, string) {
 	switch format {
-	case "sanitized", "raw", "fallback":
+	case FormatSanitized, FormatRaw, FormatFallback:
 		if len(rec) >= 2 {
 			return normalizeOUI(rec[0]), strings.TrimSpace(rec[1])
 		}
-	case "newIEEE":
+	case FormatNewIEEE:
 		if len(rec) >= 3 {
 			return normalizeOUI(rec[1]), strings.TrimSpace(rec[2])
 		}
